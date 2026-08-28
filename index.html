@@ -109,6 +109,44 @@
     color:var(--muted);
   }
   details input{ margin-top:8px; }
+
+  /* Banner de instalación */
+  #installBanner{
+    position:fixed;
+    left:16px;
+    right:16px;
+    bottom:-140px;
+    max-width:400px;
+    margin:0 auto;
+    background:var(--card);
+    border:1px solid var(--border);
+    border-radius:14px;
+    padding:16px;
+    display:flex;
+    align-items:center;
+    gap:12px;
+    box-shadow:0 8px 24px rgba(0,0,0,0.4);
+    transition:bottom 0.35s ease;
+    z-index:1000;
+  }
+  #installBanner.show{ bottom: max(16px, env(safe-area-inset-bottom)); }
+  #installBanner img{ width:42px; height:42px; border-radius:10px; flex-shrink:0; }
+  #installBanner .txt{ flex:1; min-width:0; }
+  #installBanner .txt strong{ display:block; font-size:0.92rem; }
+  #installBanner .txt span{ display:block; font-size:0.78rem; color:var(--muted); margin-top:2px; }
+  #installBanner .acciones{ display:flex; flex-direction:column; gap:6px; }
+  #installBanner button{
+    width:auto;
+    margin-top:0;
+    padding:8px 14px;
+    font-size:0.85rem;
+    white-space:nowrap;
+  }
+  #btnInstalarNo{
+    background:transparent;
+    color:var(--muted);
+    padding:4px;
+  }
 </style>
 </head>
 <body>
@@ -133,6 +171,18 @@
     <label for="webhookUrl">URL del webhook de MacroDroid</label>
     <input type="text" id="webhookUrl" placeholder="https://trigger.macrodroid.com/xxxxx/miwebhook">
   </details>
+</div>
+
+<div id="installBanner">
+  <img src="icon-192.png" alt="">
+  <div class="txt">
+    <strong>Instalar MacroHora</strong>
+    <span>Añádela a tu pantalla de inicio para usarla como app.</span>
+  </div>
+  <div class="acciones">
+    <button id="btnInstalarSi">Instalar</button>
+    <button id="btnInstalarNo">Ahora no</button>
+  </div>
 </div>
 
 <script>
@@ -256,6 +306,59 @@
       navigator.serviceWorker.register('service-worker.js').catch(() => {});
     });
   }
+
+  // ---- Aviso de instalación a los 5 segundos ----
+  const installBanner = document.getElementById('installBanner');
+  const btnInstalarSi = document.getElementById('btnInstalarSi');
+  const btnInstalarNo = document.getElementById('btnInstalarNo');
+  let deferredPrompt = null;
+
+  function yaEstaInstalada() {
+    return window.matchMedia('(display-mode: standalone)').matches ||
+           window.navigator.standalone === true; // iOS
+  }
+
+  function elUsuarioYaDijoNo() {
+    return localStorageSafeGet('installDismissed') === '1';
+  }
+
+  const esIOS = /iphone|ipad|ipod/i.test(navigator.userAgent) && !window.MSStream;
+
+  // Chrome/Android/Edge: el navegador avisa cuando la app es instalable
+  window.addEventListener('beforeinstallprompt', (e) => {
+    e.preventDefault();
+    deferredPrompt = e;
+  });
+
+  window.addEventListener('load', () => {
+    if (yaEstaInstalada() || elUsuarioYaDijoNo()) return;
+
+    setTimeout(() => {
+      // En Chrome/Android solo lo mostramos si el navegador confirmó que se puede instalar
+      // En iOS no existe ese evento, así que mostramos instrucciones manuales
+      if (deferredPrompt || esIOS) {
+        if (esIOS) {
+          document.querySelector('#installBanner .txt span').textContent =
+            'Toca Compartir 􀈂 y luego "Añadir a pantalla de inicio".';
+          btnInstalarSi.style.display = 'none';
+        }
+        installBanner.classList.add('show');
+      }
+    }, 5000);
+  });
+
+  btnInstalarSi.addEventListener('click', async () => {
+    installBanner.classList.remove('show');
+    if (!deferredPrompt) return;
+    deferredPrompt.prompt();
+    await deferredPrompt.userChoice;
+    deferredPrompt = null;
+  });
+
+  btnInstalarNo.addEventListener('click', () => {
+    installBanner.classList.remove('show');
+    localStorageSafeSet('installDismissed', '1');
+  });
 </script>
 </body>
 </html>
