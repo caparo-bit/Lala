@@ -1,0 +1,261 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, viewport-fit=cover">
+<title>MacroHora</title>
+
+<!-- PWA -->
+<link rel="manifest" href="manifest.json">
+<meta name="theme-color" content="#12141a">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="MacroHora">
+<link rel="apple-touch-icon" href="apple-touch-icon.png">
+<link rel="icon" type="image/png" sizes="192x192" href="icon-192.png">
+<link rel="icon" type="image/png" sizes="512x512" href="icon-512.png">
+
+<style>
+  :root{
+    --bg:#12141a;
+    --card:#1b1f27;
+    --accent:#5ee6b0;
+    --text:#e8ecf1;
+    --muted:#8a92a3;
+    --border:#2a2f3a;
+  }
+  *{box-sizing:border-box; -webkit-tap-highlight-color:transparent;}
+  html,body{ height:100%; overscroll-behavior:none; }
+  body{
+    margin:0;
+    min-height:100vh;
+    display:flex;
+    align-items:center;
+    justify-content:center;
+    background:var(--bg);
+    font-family:'Segoe UI',system-ui,-apple-system,sans-serif;
+    color:var(--text);
+    padding:24px;
+    padding-top: max(24px, env(safe-area-inset-top));
+    padding-bottom: max(24px, env(safe-area-inset-bottom));
+    user-select:none;
+  }
+  .card{
+    width:100%;
+    max-width:400px;
+    background:var(--card);
+    border:1px solid var(--border);
+    border-radius:16px;
+    padding:28px 24px;
+  }
+  .logo{
+    display:flex;
+    justify-content:center;
+    margin-bottom:12px;
+  }
+  .logo img{
+    width:56px;
+    height:56px;
+    border-radius:14px;
+  }
+  h1{ font-size:1.25rem; margin:0 0 4px; text-align:center; }
+  p.sub{ color:var(--muted); margin:0 0 24px; font-size:0.9rem; text-align:center; }
+  label{
+    display:block;
+    font-size:0.85rem;
+    color:var(--muted);
+    margin-bottom:6px;
+    margin-top:16px;
+  }
+  input[type="date"], select, input[type="text"]{
+    width:100%;
+    padding:12px;
+    border-radius:10px;
+    border:1px solid var(--border);
+    background:#11141a;
+    color:var(--text);
+    font-size:1rem;
+    user-select:text;
+  }
+  select{
+    appearance:auto;
+    background:#11141a;
+  }
+  button{
+    width:100%;
+    margin-top:24px;
+    padding:14px;
+    border:none;
+    border-radius:10px;
+    background:var(--accent);
+    color:#0a1410;
+    font-weight:600;
+    font-size:1rem;
+    cursor:pointer;
+  }
+  button:active{ transform:scale(0.98); }
+  #status{
+    margin-top:14px;
+    font-size:0.85rem;
+    text-align:center;
+    min-height:20px;
+  }
+  .ok{ color:var(--accent); }
+  .err{ color:#ff6b6b; }
+  details{
+    margin-top:20px;
+    font-size:0.8rem;
+    color:var(--muted);
+  }
+  details input{ margin-top:8px; }
+</style>
+</head>
+<body>
+
+<div class="card">
+  <div class="logo"><img src="icon-192.png" alt="MacroHora"></div>
+  <h1>Enviar hora a MacroDroid</h1>
+  <p class="sub">Elige día y hora (se restarán <strong>49 horas</strong> automáticamente).</p>
+
+  <label for="dia">Día</label>
+  <input type="date" id="dia">
+
+  <label for="hora">Hora disponible</label>
+  <select id="hora"></select>
+
+  <button id="btnEnviar">Enviar a MacroDroid</button>
+
+  <div id="status"></div>
+
+  <details>
+    <summary>Configurar URL del webhook</summary>
+    <label for="webhookUrl">URL del webhook de MacroDroid</label>
+    <input type="text" id="webhookUrl" placeholder="https://trigger.macrodroid.com/xxxxx/miwebhook">
+  </details>
+</div>
+
+<script>
+  // Mapeo de día de la semana (0=domingo, 1=lunes, ...) a array de horas
+  const horariosPorDia = {
+    0: ['09:00','10:30','12:00','13:30','15:00','16:30','18:00'], // Domingo
+    1: ['10:00','11:30','14:30','16:00','17:30','20:00','21:30'], // Lunes
+    2: ['09:00','10:30','13:00','15:00','16:30','19:00','21:30'], // Martes
+    3: ['10:00','11:30','14:30','16:00','17:30','20:00','21:30'], // Miércoles
+    4: ['09:00','10:30','13:00','15:00','16:30','19:00','21:30'], // Jueves
+    5: ['10:00','11:30','14:30','16:00','17:30','20:00','21:30'], // Viernes
+    6: ['09:00','10:30','12:00','13:30','15:00','16:30','18:00']  // Sábado
+  };
+
+  const inputDia = document.getElementById('dia');
+  const selectHora = document.getElementById('hora');
+  const inputUrl = document.getElementById('webhookUrl');
+  const status = document.getElementById('status');
+
+  // Cargar URL guardada
+  const guardada = localStorageSafeGet('webhookUrl');
+  if (guardada) inputUrl.value = guardada;
+
+  function localStorageSafeGet(key){
+    try { return localStorage.getItem(key); } catch(e){ return null; }
+  }
+  function localStorageSafeSet(key, value){
+    try { localStorage.setItem(key, value); } catch(e){}
+  }
+
+  // Actualizar selector de horas según el día de la semana de la fecha elegida
+  function actualizarHoras() {
+    const fecha = inputDia.value;
+    if (!fecha) {
+      selectHora.innerHTML = '<option disabled>Elige una fecha</option>';
+      return;
+    }
+    const partes = fecha.split('-').map(Number);
+    const fechaObj = new Date(partes[0], partes[1] - 1, partes[2]);
+    const diaSemana = fechaObj.getDay(); // 0=domingo, 1=lunes...
+    const horas = horariosPorDia[diaSemana] || [];
+
+    selectHora.innerHTML = '';
+    if (horas.length === 0) {
+      const opt = document.createElement('option');
+      opt.textContent = 'No hay horas para este día';
+      opt.disabled = true;
+      selectHora.appendChild(opt);
+    } else {
+      horas.forEach(h => {
+        const opt = document.createElement('option');
+        opt.value = h;
+        opt.textContent = h;
+        selectHora.appendChild(opt);
+      });
+    }
+  }
+
+  // Al cambiar la fecha, actualizar horas
+  inputDia.addEventListener('change', actualizarHoras);
+  // Establecer fecha inicial (hoy o la que quieras) y cargar horas
+  const hoy = new Date();
+  const year = hoy.getFullYear();
+  const month = String(hoy.getMonth() + 1).padStart(2, '0');
+  const day = String(hoy.getDate()).padStart(2, '0');
+  inputDia.value = `${year}-${month}-${day}`;
+  actualizarHoras();
+
+  document.getElementById('btnEnviar').addEventListener('click', async () => {
+    const fechaSeleccionada = inputDia.value;
+    const horaSeleccionada = selectHora.value;
+    const url = inputUrl.value.trim();
+
+    if (!fechaSeleccionada || !horaSeleccionada) {
+      status.textContent = 'Elige día y hora disponibles.';
+      status.className = 'err';
+      return;
+    }
+    if (!url) {
+      status.textContent = 'Falta la URL del webhook (ábrela abajo).';
+      status.className = 'err';
+      return;
+    }
+
+    localStorageSafeSet('webhookUrl', url);
+
+    // Crear objeto Date con la fecha/hora local
+    const [year, month, day] = fechaSeleccionada.split('-').map(Number);
+    const [hours, minutes] = horaSeleccionada.split(':').map(Number);
+    const fechaOriginal = new Date(year, month - 1, day, hours, minutes);
+
+    // Restar 49 horas (49 * 3600000 ms)
+    const nuevaFecha = new Date(fechaOriginal.getTime() - 49 * 3600000);
+
+    const diaFormateado = 
+      nuevaFecha.getFullYear() + '-' +
+      String(nuevaFecha.getMonth() + 1).padStart(2, '0') + '-' +
+      String(nuevaFecha.getDate()).padStart(2, '0');
+    const horaFormateada = 
+      String(nuevaFecha.getHours()).padStart(2, '0') + ':' +
+      String(nuevaFecha.getMinutes()).padStart(2, '0');
+
+    const finalUrl = `${url}?dia=${encodeURIComponent(diaFormateado)}&hora=${encodeURIComponent(horaFormateada)}`;
+
+    status.textContent = 'Enviando...';
+    status.className = '';
+
+    try {
+      await fetch(finalUrl, { method: 'GET', mode: 'no-cors' });
+      status.textContent = `✅ Enviado (nueva fecha: ${diaFormateado} a las ${horaFormateada})`;
+      status.className = 'ok';
+    } catch (e) {
+      status.textContent = '❌ Error de conexión o URL incorrecta.';
+      status.className = 'err';
+    }
+  });
+
+  // Registrar Service Worker para que funcione como app instalable
+  if ('serviceWorker' in navigator) {
+    window.addEventListener('load', () => {
+      navigator.serviceWorker.register('service-worker.js').catch(() => {});
+    });
+  }
+</script>
+</body>
+</html>
